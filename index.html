@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <!-- SEO/OGP メタ情報ブロック（seo-meta-proposal.md §2・v1.0。N-1 実装） -->
+    <title>ベルト工場の放置｜ベルトで麦を運び、離脱中も回すブラウザ放置ゲーム</title>
+    <meta name="description" content="農場で麦を生産し、自分で敷いたベルトコンベアで精製所へ運び、タンクを満たして売る。放置系の「数字が増える眺め」ではなく、ベルト上を流れるアイテムそのものが遊び。スマホ・PCブラウザで無料。離脱中もラインは回り、復帰時に蓄積が報告される。" />
+    <link rel="canonical" href="https://okpisbonjin.github.io/belt-factory/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="ベルト工場の放置 — ベルトコンベア×放置。離脱中もラインは回ります" />
+    <meta property="og:description" content="自分で敷いたベルトの上を麦が流れる、ブラウザ放置ゲーム。離脱中もラインは回り、復帰時に「溜まりきった」報告が届きます。スマホ・PCで無料。" />
+    <meta property="og:url" content="https://okpisbonjin.github.io/belt-factory/" />
+    <meta property="og:image" content="https://okpisbonjin.github.io/belt-factory/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="ja_JP" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "VideoGame",
+      "name": "ベルト工場の放置",
+      "alternateName": "belt-factory",
+      "url": "https://okpisbonjin.github.io/belt-factory/",
+      "description": "農場で麦を生産し、自分で敷いたベルトコンベアで精製所へ運び、タンクを満たして売るブラウザ放置ゲーム。離脱中もラインは回り、復帰時に蓄積が報告される。",
+      "image": "https://okpisbonjin.github.io/belt-factory/og-image.png",
+      "inLanguage": "ja",
+      "operatingSystem": "Web",
+      "playMode": "SinglePlayer",
+      "applicationCategory": "Game",
+      "gamePlatform": "Web browser",
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "JPY" }
+    }
+    </script>
+    <style>
+      /* 色トークン（ui-spec.md §4.1・14種。src/render/colors.ts が単一の源） */
+      :root {
+        --bg-base: #171C22;
+        --bg-panel: #232A33;
+        --bg-tile-a: #1F252D;
+        --bg-tile-b: #242B34;
+        --text-primary: #F2F4F7;
+        --text-secondary: #9AA4B2;
+        --accent-amber: #F5B841;
+        --color-wheat: #D9A441;
+        --color-flour: #F1E4CE;
+        --color-flow: #58C470;
+        --color-warn: #E5484D;
+        --color-wait: #5B9BD5;
+        --focus-ring: #F5B841;
+        --bg-canvas-frame: #12161B;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: var(--bg-base);
+        color: var(--text-primary);
+        font-family: "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Yu Gothic", system-ui, sans-serif;
+        font-size: 16px;
+        -webkit-text-size-adjust: 100%;
+      }
+      #app { padding: 0; }
+      /* Safe Area（ui-spec §3.1） */
+      .game-layer {
+        padding-top: env(safe-area-inset-top);
+        padding-bottom: env(safe-area-inset-bottom);
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      /* HUD 上部バー（デスクトップ 56px / モバイル 48px・ui-spec §3.2） */
+      .hud-top-bar {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        height: 56px;
+        padding: 0 16px;
+        background: var(--bg-panel);
+      }
+      .hud-cash-block { display: flex; align-items: baseline; gap: 8px; }
+      .hud-label { font-size: 13px; color: var(--text-secondary); }
+      .hud-cash-value {
+        font-size: 20px;
+        font-weight: bold;
+        color: var(--accent-amber);
+        font-variant-numeric: tabular-nums;
+      }
+      .hud-upgrade-icons { display: flex; align-items: center; gap: 8px; flex: 1; overflow: hidden; }
+      .hud-upgrade-none { font-size: 13px; color: var(--text-secondary); }
+      .hud-upgrade-icon {
+        min-width: 44px;
+        min-height: 44px;
+        border: 1px solid var(--color-flow);
+        border-radius: 6px;
+        background: transparent;
+        color: var(--color-flow);
+        font-size: 13px;
+        font-variant-numeric: tabular-nums;
+        cursor: pointer;
+        padding: 0 8px;
+      }
+      .hud-jam-badge {
+        min-width: 44px;
+        min-height: 44px;
+        border: none;
+        border-radius: 12px;
+        background: var(--color-warn);
+        color: #fff;
+        font-size: 13px;
+        font-weight: bold;
+        cursor: pointer;
+        padding: 0 12px;
+      }
+      /* Canvas 領域（375px では横スクロール可・FR-01②） */
+      .canvas-holder {
+        flex: 1;
+        overflow-x: auto;
+        overflow-y: hidden;
+        position: relative;
+        background: var(--bg-canvas-frame);
+      }
+      .canvas-holder canvas { display: block; }
+      /* バナースロット（Canvas の下・独立行。FR-19①） */
+      .ad-banner-slot {
+        height: 90px;
+        min-height: 50px;
+        background: var(--bg-panel);
+        border-top: 1px solid var(--bg-base);
+      }
+      /* 下部バー＋建造ボタン（ui-spec §3.2 モバイル） */
+      .hud-bottom-bar {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 64px;
+        background: var(--bg-panel);
+      }
+      .hud-build-menu-button {
+        width: 56px;
+        height: 56px;
+        border: none;
+        border-radius: 28px;
+        background: var(--accent-amber);
+        color: #171C22;
+        font-size: 16px;
+        font-weight: bold;
+        cursor: pointer;
+      }
+      /* 建造メニュー（S2。ボトムシート型・ui-spec §3.3） */
+      .build-menu {
+        position: fixed;
+        left: 0; right: 0; bottom: 64px;
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+        padding: 16px;
+        background: var(--bg-panel);
+        border-top: 1px solid var(--bg-base);
+        max-height: 50vh;
+        overflow-y: auto;
+        z-index: 30;
+      }
+      .build-menu-cell {
+        min-width: 72px;
+        min-height: 72px;
+        border: 1px solid var(--text-secondary);
+        border-radius: 8px;
+        background: var(--bg-base);
+        color: var(--text-primary);
+        font-size: 14px;
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+      }
+      .build-menu-cost { color: var(--accent-amber); font-variant-numeric: tabular-nums; }
+      .build-menu-disabled { opacity: 0.4; filter: grayscale(1); }
+      /* 配置モードのキャンセル（ui-spec §3.4。44px 以上） */
+      .placement-cancel-button {
+        position: fixed;
+        top: 72px;
+        right: 16px;
+        min-width: 44px;
+        min-height: 44px;
+        z-index: 40;
+        border: 1px solid var(--color-warn);
+        border-radius: 8px;
+        background: var(--bg-panel);
+        color: var(--color-warn);
+        font-size: 14px;
+        cursor: pointer;
+      }
+      /* 建物詳細パネル（S4。幅280px・ui-spec §3.5） */
+      .building-panel {
+        position: absolute;
+        width: 280px;
+        background: var(--bg-panel);
+        border: 1px solid var(--text-secondary);
+        border-radius: 8px;
+        padding: 12px;
+        z-index: 35;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+      }
+      .panel-title { font-size: 16px; font-weight: bold; margin-bottom: 8px; }
+      .panel-param-row { display: flex; justify-content: space-between; font-size: 13px; padding: 2px 0; }
+      .panel-param-label { color: var(--text-secondary); }
+      .panel-param-value { font-variant-numeric: tabular-nums; }
+      .panel-upgrade-info { font-size: 12px; color: var(--text-secondary); margin: 8px 0; }
+      .panel-upgrade-progress { font-size: 14px; font-variant-numeric: tabular-nums; }
+      .panel-upgrade-button, .panel-sell-button {
+        width: 100%;
+        min-height: 44px;
+        border: none;
+        border-radius: 8px;
+        background: var(--accent-amber);
+        color: #171C22;
+        font-size: 16px;
+        font-weight: bold;
+        cursor: pointer;
+      }
+      .panel-upgrade-button:disabled, .panel-sell-button:disabled {
+        opacity: 0.4;
+        filter: grayscale(1);
+      }
+      .panel-sell-area { margin-top: 8px; }
+      .panel-note { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+      .panel-max-level { font-size: 14px; color: var(--text-secondary); }
+      /* 復帰報告（S5。全面オーバーレイ背面60%黒・ui-spec §3.6） */
+      .report-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 50;
+      }
+      .report-card {
+        width: min(480px, calc(100vw - 32px));
+        max-height: 80vh;
+        overflow-y: auto;
+        background: var(--bg-panel);
+        border-radius: 12px;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .report-heading { font-size: 20px; margin: 0; }
+      .report-tank-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 16px;
+        font-variant-numeric: tabular-nums;
+        padding: 4px 0;
+      }
+      .report-full-badge {
+        background: var(--color-warn);
+        color: #fff;
+        font-size: 12px;
+        border-radius: 4px;
+        padding: 2px 6px;
+      }
+      .report-revenue {
+        font-size: 24px;
+        font-weight: bold;
+        color: var(--accent-amber);
+        font-variant-numeric: tabular-nums;
+      }
+      .report-note { font-size: 12px; color: var(--text-secondary); }
+      .report-upgrades { font-size: 14px; color: var(--text-primary); }
+      .report-reward-button {
+        min-height: 44px;
+        border: none;
+        border-radius: 8px;
+        background: var(--color-flow);
+        color: #171C22;
+        font-size: 16px;
+        font-weight: bold;
+        cursor: pointer;
+      }
+      .report-close-button {
+        min-height: 44px;
+        border: 1px solid var(--text-secondary);
+        border-radius: 8px;
+        background: transparent;
+        color: var(--text-primary);
+        font-size: 16px;
+        cursor: pointer;
+      }
+      /* オンボーディング（S6。暗幕なし・ui-spec §3.7） */
+      .onboarding-overlay {
+        position: fixed;
+        top: 64px;
+        left: 0; right: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        pointer-events: none;
+        z-index: 45;
+      }
+      .onboarding-bubble {
+        pointer-events: auto;
+        background: var(--bg-panel);
+        border: 2px solid var(--accent-amber);
+        border-radius: 12px;
+        padding: 12px 16px;
+        max-width: min(480px, calc(100vw - 32px));
+        text-align: center;
+      }
+      .onboarding-text { font-size: 16px; font-weight: bold; }
+      .onboarding-extra { font-size: 12px; color: var(--text-secondary); margin-top: 4px; font-variant-numeric: tabular-nums; }
+      .onboarding-skip {
+        pointer-events: auto;
+        margin-top: 8px;
+        min-width: 44px;
+        min-height: 44px;
+        border: none;
+        background: transparent;
+        color: var(--text-secondary);
+        font-size: 14px;
+        text-decoration: underline;
+        cursor: pointer;
+      }
+      /* トースト（FR-03③・FR-06②・FR-20③） */
+      .toast-notice {
+        position: fixed;
+        bottom: 88px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--bg-panel);
+        border: 1px solid var(--text-secondary);
+        border-radius: 8px;
+        color: var(--text-primary);
+        font-size: 14px;
+        padding: 10px 16px;
+        z-index: 60;
+        max-width: calc(100vw - 32px);
+      }
+      /* エラー通知（NFR-7） */
+      .error-notice {
+        position: fixed;
+        top: 64px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--color-warn);
+        color: #fff;
+        font-size: 14px;
+        border-radius: 8px;
+        padding: 10px 16px;
+        z-index: 70;
+        max-width: calc(100vw - 32px);
+      }
+      /* 残り10秒の点滅（ui-spec §4.2。prefers-reduced-motion では点滅なし） */
+      @media (prefers-reduced-motion: no-preference) {
+        .hud-upgrade-icon.urgent { animation: blink 1s linear infinite; }
+      }
+      @keyframes blink { 50% { opacity: 0.3; } }
+      /* モバイル幅（375px 基準・ui-spec §3.2） */
+      @media (max-width: 600px) {
+        .hud-top-bar { height: 48px; gap: 8px; padding: 0 8px; }
+        .hud-cash-value { font-size: 18px; }
+        .hud-label { display: none; }
+        .ad-banner-slot { height: 50px; }
+        .building-panel { width: calc(100vw - 16px); }
+        .build-menu { bottom: 64px; }
+      }
+      button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+    </style>
+    <script type="module" crossorigin src="./assets/index-C7Oo_a3w.js"></script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <!-- 静的フォールバック（seo-meta-proposal.md §3.5。JS 無効時のみ表示） -->
+    <noscript>
+      <p>ベルト工場の放置は JavaScript を有効にする必要があります。ブラウザの JavaScript 設定をオンにして、ページを再読み込みしてください。</p>
+    </noscript>
+  </body>
+</html>
